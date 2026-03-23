@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>마이레지오</title>
+<link rel="manifest" href="manifest.json">
+
+<style>
+body{margin:0;font-family:'Noto Sans KR';background:#f2f4f7;}
+header{background:#2c3e50;color:white;text-align:center;padding:16px;font-size:20px;}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px;}
+.tile{background:white;padding:26px;border-radius:14px;text-align:center;}
+
+.page{display:none;padding:14px;max-width:520px;margin:auto;}
+.card{background:white;padding:12px;border-radius:12px;margin-bottom:12px;}
+
+.row{display:flex;justify-content:space-between;align-items:center;margin:6px 0;}
+button{border:none;border-radius:8px;padding:6px 10px;margin:2px;}
+.plus{background:#2ecc71;color:white;}
+.minus{background:#e74c3c;color:white;}
+.red{background:#e74c3c;color:white;width:100%;padding:12px;}
+
+input,select{width:100%;padding:6px;margin-top:6px;}
+textarea{width:100%;height:180px;margin-top:10px;}
+
+.detail{display:none;background:#eef3f8;padding:8px;border-radius:8px;margin-top:6px;}
+
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,0.5);justify-content:center;align-items:center;}
+.modal-box{background:white;padding:16px;border-radius:10px;width:90%;max-width:320px;}
+
+img{width:100%;max-height:280px;object-fit:contain;}
+</style>
+
+</head>
+
+<body>
+
+<header>마이레지오</header>
+
+<div id="home">
+<div class="tiles">
+<div class="tile" onclick="openPage('record')">기록하기</div>
+<div class="tile" onclick="openPage('report')">보고하기</div>
+<div class="tile" onclick="openPage('history')">지난보고</div>
+<div class="tile" onclick="openPage('prayer')">기도문</div>
+</div>
+</div>
+
+<div id="record" class="page">
+
+<div class="card"><b>지시사항</b><div id="directive"></div>
+<button onclick="openAdd('directive')">+ 추가</button></div>
+
+<div class="card"><b>나의 다짐</b><div id="promise"></div>
+<button onclick="openAdd('promise')">+ 추가</button></div>
+
+<div class="card"><b>지구와 함께</b><div id="earth"></div></div>
+
+<div class="card"><b>지시외 사항</b><div id="extra"></div>
+<button onclick="openAdd('extra')">+ 추가</button></div>
+
+<div class="card">
+<b>항목 삭제</b>
+<select id="delType">
+<option value="directive">지시사항</option>
+<option value="promise">다짐</option>
+<option value="extra">지시외</option>
+</select>
+<select id="delItem"></select>
+<button onclick="deleteItem()">삭제</button>
+</div>
+
+<button onclick="goHome()">홈</button>
+
+</div>
+
+<div id="report" class="page">
+<button onclick="generateReport()">보고 생성</button>
+<textarea id="reportText"></textarea>
+<button onclick="copyReport()">복사</button>
+<button onclick="saveReport()">저장</button>
+<button class="red" onclick="resetWeek()">새 주간 시작</button>
+<button onclick="goHome()">홈</button>
+</div>
+
+<div id="history" class="page">
+<button onclick="clearHistory()">전체 삭제</button>
+<div id="historyList"></div>
+<button onclick="goHome()">홈</button>
+</div>
+
+<div id="prayer" class="page">
+<input id="pName" placeholder="기도문 이름">
+<input type="file" id="pFile">
+<button onclick="addPrayer()">추가</button>
+<div id="prayerList"></div>
+<button onclick="goHome()">홈</button>
+</div>
+
+<div id="modal" class="modal">
+<div class="modal-box">
+<input id="newName" placeholder="이름">
+<select id="newCategory"></select>
+<button onclick="addItem()">추가</button>
+<button onclick="closeModal()">닫기</button>
+</div>
+</div>
+
+<script>
+
+// 구조 데이터
+let app=JSON.parse(localStorage.getItem("app")||`{
+"directive":["묵주기도","평일미사","매일묵상"],
+"promise":[],
+"extra":{
+"기도":["사제를 위한 기도","주교를 위한 기도","선종을 위한 기도"],
+"봉사":["본당협조","제단체 봉사"],
+"복음선교":["복음선교","상가 방문"],
+"교우돌봄":["가정 방문","환자 방문"],
+"이웃돌봄":["연도"]
+}
+}`);
+
+let data=JSON.parse(localStorage.getItem("data")||"{}");
+let reports=JSON.parse(localStorage.getItem("reports")||"[]");
+let prayers=JSON.parse(localStorage.getItem("prayers")||"[]");
+
+// 6R 고정
+let earth=["거절하기","아껴쓰기","고쳐쓰기","재고하기","다시쓰기","재생하기"];
+
+let earthDetail={
+거절하기:["비닐봉지 거절","배달 시 수저 빼달라 요청","종이컵 줄이기","비닐랩 줄이기","텀블러 사용","일회용품 거절","장바구니 사용"],
+아껴쓰기:["휴지 절약","양치컵 사용","전기 플러그 뽑기","손수건 사용","전기밥솥 보온 줄이기","물 절약","세탁 모아서 하기"],
+고쳐쓰기:["옷 수선","고장 물건 수리","필터 관리","재사용 점검","낡은 물건 보수"],
+재고하기:["충동구매 줄이기","불필요 소비 줄이기","필요성 재확인","무포장 제품 선택","공정무역 고려"],
+다시쓰기:["중고 사용","이면지 사용","물 재사용","남은 음식 활용","아이스팩 재사용"],
+재생하기:["분리배출 철저","페트병 분리","비닐 분리","이메일 정리","음식물 쓰레기 줄이기","냉장고 60% 유지"]
+};
+
+// 저장
+function save(){
+localStorage.setItem("app",JSON.stringify(app));
+localStorage.setItem("data",JSON.stringify(data));
+localStorage.setItem("reports",JSON.stringify(reports));
+localStorage.setItem("prayers",JSON.stringify(prayers));
+}
+
+// 카운트
+function count(k,v){
+if(!data[k])data[k]={c:0,t:""};
+data[k].c+=v;
+if(data[k].c<0)data[k].c=0;
+save();render();
+}
+
+// 행
+function row(k,memo=false){
+let v=data[k]?.c||0;
+let t=data[k]?.t||"";
+return `<div class="row">${k}
+<div>
+<button class="minus" onclick="count('${k}',-1)">-</button>
+${v}
+<button class="plus" onclick="count('${k}',1)">+</button>
+</div></div>`+
+(memo?`<input value="${t}" placeholder="메모" oninput="data['${k}'].t=this.value;save()">`:"");
+}
+
+// 렌더
+function render(){
+
+document.getElementById("directive").innerHTML=
+app.directive.map(k=>row(k)).join("");
+
+document.getElementById("promise").innerHTML=
+app.promise.map(k=>row(k,true)).join("");
+
+document.getElementById("earth").innerHTML=
+earth.map(k=>row(k)+`<button onclick="toggle('${k}')">내용</button>
+<div id="d_${k}" class="detail">${earthDetail[k].join("<br>")}</div>`).join("");
+
+let ex="";
+for(let c in app.extra){
+ex+="<b>"+c+"</b>";
+app.extra[c].forEach(k=>ex+=row(k,c!="기도"));
+}
+document.getElementById("extra").innerHTML=ex;
+
+updateDeleteList();
+renderHistory();
+renderPrayers();
+}
+
+// 상세보기
+function toggle(k){
+let el=document.getElementById("d_"+k);
+el.style.display=el.style.display==="block"?"none":"block";
+}
+
+// 추가
+function openAdd(type){
+document.getElementById("modal").style.display="flex";
+let sel=document.getElementById("newCategory");
+sel.innerHTML="";
+
+if(type==="directive") sel.innerHTML="<option>directive</option>";
+else if(type==="promise") sel.innerHTML="<option>promise</option>";
+else{
+for(let c in app.extra){
+sel.innerHTML+=`<option>${c}</option>`;
+}
+}
+}
+
+function addItem(){
+let name=document.getElementById("newName").value;
+let cat=document.getElementById("newCategory").value;
+
+if(!name)return;
+
+if(cat==="directive") app.directive.push(name);
+else if(cat==="promise") app.promise.push(name);
+else app.extra[cat].push(name);
+
+closeModal();
+save();render();
+}
+
+function closeModal(){
+document.getElementById("modal").style.display="none";
+}
+
+// 삭제
+function updateDeleteList(){
+let type=document.getElementById("delType").value;
+let sel=document.getElementById("delItem");
+sel.innerHTML="";
+
+if(type==="directive") app.directive.forEach(k=>sel.innerHTML+=`<option>${k}</option>`);
+if(type==="promise") app.promise.forEach(k=>sel.innerHTML+=`<option>${k}</option>`);
+if(type==="extra"){
+for(let c in app.extra){
+app.extra[c].forEach(k=>sel.innerHTML+=`<option>${k}</option>`);
+}
+}
+}
+document.getElementById("delType").onchange=updateDeleteList;
+
+function deleteItem(){
+let name=document.getElementById("delItem").value;
+
+app.directive=app.directive.filter(x=>x!=name);
+app.promise=app.promise.filter(x=>x!=name);
+
+for(let c in app.extra){
+app.extra[c]=app.extra[c].filter(x=>x!=name);
+}
+
+save();render();
+}
+
+// 보고
+function generateReport(){
+let d=new Date();
+let txt=`${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}
+
+지시사항
+`;
+
+app.directive.forEach(k=>{
+if((data[k]?.c||0)>0)
+txt+=`${k} ${data[k].c}회\n`;
+});
+
+txt+=`\n나의 다짐\n`;
+app.promise.forEach(k=>{
+if((data[k]?.c||0)>0){
+txt+=`${k} ${data[k].c}회`;
+if(data[k].t) txt+=` (${data[k].t})`;
+txt+="\n";
+}
+});
+
+txt+=`\n지구와 함께\n`;
+earth.forEach(k=>{
+if((data[k]?.c||0)>0)
+txt+=`${k} ${data[k].c}회\n`;
+});
+
+txt+=`\n지시외 사항\n`;
+for(let c in app.extra){
+app.extra[c].forEach(k=>{
+if((data[k]?.c||0)>0){
+txt+=`${k} ${data[k].c}회`;
+if(data[k].t) txt+=` (${data[k].t})`;
+txt+="\n";
+}
+});
+}
+
+document.getElementById("reportText").value=txt;
+}
+
+// 기타 기능 유지
+function copyReport(){
+navigator.clipboard.writeText(document.getElementById("reportText").value);
+alert("복사되었습니다.");
+}
+
+function saveReport(){
+reports.unshift(document.getElementById("reportText").value);
+save();
+alert("저장되었습니다.");
+}
+
+function resetWeek(){
+if(!confirm("지금까지 기록을 모두 지웁니다. 지우시겠습니까?"))return;
+data={};
+document.getElementById("reportText").value="";
+save();render();
+alert("새로운 기록이 시작됩니다");
+}
+
+function clearHistory(){
+if(!confirm("삭제하시겠습니까?"))return;
+reports=[];
+save();renderHistory();
+}
+
+function renderHistory(){
+document.getElementById("historyList").innerHTML=
+reports.map(r=>"<div>"+r+"</div>").join("");
+}
+
+function addPrayer(){
+if(!confirm("이미지 저장됩니다"))return;
+
+let file=document.getElementById("pFile").files[0];
+let name=document.getElementById("pName").value;
+
+if(!file || !name){
+alert("이름과 파일을 선택하세요");
+return;
+}
+
+// 🔥 핵심: 리사이즈 적용
+resizeImage(file,function(resizedImg){
+
+prayers.push({
+name:name,
+img:resizedImg,
+show:false
+});
+
+save();
+render();
+
+// 입력 초기화 (UX 개선)
+document.getElementById("pFile").value="";
+document.getElementById("pName").value="";
+
+alert("기도문이 추가되었습니다");
+});
+}
+
+function renderPrayers(){
+document.getElementById("prayerList").innerHTML=
+prayers.map((p,i)=>`
+<div class="card">
+<b>${p.name}</b>
+<button onclick="togglePrayer(${i})">보기</button>
+<div style="display:${p.show?'block':'none'}">
+<img src="${p.img}">
+</div>
+<button onclick="deletePrayer(${i})">삭제</button>
+</div>
+`).join("");
+}
+
+function togglePrayer(i){
+prayers[i].show=!prayers[i].show;
+render();
+}
+
+function deletePrayer(i){
+prayers.splice(i,1);
+save();render();
+}
+
+function openPage(id){
+document.querySelectorAll(".page").forEach(p=>p.style.display="none");
+document.getElementById("home").style.display="none";
+document.getElementById(id).style.display="block";
+}
+
+function goHome(){
+document.querySelectorAll(".page").forEach(p=>p.style.display="none");
+document.getElementById("home").style.display="block";
+}
+
+render();
+function resizeImage(file, callback){
+let img=new Image();
+let reader=new FileReader();
+
+reader.onload=function(e){
+img.src=e.target.result;
+};
+
+img.onload=function(){
+
+let maxSize=800; // 최대 크기 (핵심)
+let ratio=Math.min(maxSize/img.width, maxSize/img.height);
+
+let canvas=document.createElement("canvas");
+let ctx=canvas.getContext("2d");
+
+canvas.width=img.width*ratio;
+canvas.height=img.height*ratio;
+
+ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+// 품질 0.7 (용량 크게 감소)
+let resizedData=canvas.toDataURL("image/jpeg",0.7);
+
+callback(resizedData);
+};
+
+reader.readAsDataURL(file);
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js');
+}
+
+</script>
+
+</body>
+</html>
+
